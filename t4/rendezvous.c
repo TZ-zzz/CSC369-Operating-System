@@ -56,9 +56,11 @@ void *thread_a(void *arg)
 	pthread_mutex_lock(&print_lock);
 	not_a = 1;
 	/* Rendezvous with thread_b */
-	while (not_a == 0) {
-		pthread_cond_wait()
+	while (not_b == 0) {
+		pthread_cond_wait(&not_b1, &print_lock);
 	}
+	pthread_cond_broadcast(&not_a1);
+	pthread_mutex_unlock(&print_lock);
 	print_a2();
 
 	return NULL;
@@ -70,8 +72,14 @@ void *thread_b(void *arg)
 
 	// TODO: Add synchronization and signaling to enforce ordering.
 	print_b1();
-
+	pthread_mutex_lock(&print_lock);
+	not_b = 1;
 	/* Rendezvous with thread_a */
+	while (not_a == 0) {
+		pthread_cond_wait(&not_a1, &print_lock);
+	}
+	pthread_cond_broadcast(&not_b1);
+	pthread_mutex_unlock(&print_lock);
 
 	print_b2();
 

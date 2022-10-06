@@ -1,0 +1,8 @@
+Welcome to CSC369 Assignment 1!
+This assignment is designed to help you review the C programming skills and memory management techniques, which are essentials for the rest of the course. 
+Please read through the comments in ALL source files. 
+DO NOT edit headers (queue.h, stack.h, defines.h) as you will only submit queue.c and stack.c.
+Test your code before submission! We will use the same tests to test your code as you have!
+Good luck and Enjoy!
+
+Robin Li

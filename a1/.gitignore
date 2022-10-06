@@ -1,6 +1,0 @@
-*.o
-a1-tester
-queue.h
-stack.h
-Makefile
-README

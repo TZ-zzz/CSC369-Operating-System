@@ -110,7 +110,7 @@ test_basic()
 	 * and exit. */
 	ii = 0;
 	do {
-		/* the yield should be needed at most NTHREADS+2 times */
+		/* the yield should be needed at most NTHREADS+2 times */\
 		assert(ii <= (NTHREADS + 1));
 		ret = thread_yield(THREAD_ANY);
 		ii++;

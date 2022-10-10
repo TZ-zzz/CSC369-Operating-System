@@ -40,11 +40,11 @@
  * initialization), thread_a(), and thread_b() to solve the problem.
  */
 
-pthread_cond_t not_a1;
-pthread_cond_t not_b1;
-pthread_mutex_t print_lock;
-int not_a = 0;
-int not_b = 0;
+pthread_cond_t not_a1 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t not_b1 = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t print_lock = PTHREAD_MUTEX_INITIALIZER;
+volatile int not_a = 0;
+volatile int not_b = 0;
 
 
 void *thread_a(void *arg)
@@ -94,6 +94,8 @@ int main(int argc, char **argv)
 	output_init();
 	
 	// TODO: Add initialization for synchronization variables.
+
+
 
 	if (pthread_create(&a, NULL, thread_a, NULL)) {
 		perror("pthread_create");

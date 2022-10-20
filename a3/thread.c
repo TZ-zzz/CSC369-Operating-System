@@ -22,13 +22,16 @@ typedef struct queue{
 }queue_t;
 
 queue_t* queue_initialize(){
+    int enabled = interrupts_set(0);
     queue_t * queue = malloc(sizeof(queue_t));
     queue->root = NULL;
     queue->tail = NULL;
+    interrupts_set(enabled);
     return queue;
 }
 
 void queue_enq(queue_t * q, Tid tid){
+    int enabled = interrupts_set(0);
     queue_node_t * node = malloc(sizeof(queue_node_t));
     node->tid = tid;
     node->next = NULL;
@@ -40,10 +43,13 @@ void queue_enq(queue_t * q, Tid tid){
         q->tail->next = node;
         q->tail = node;
     }
+    interrupts_set(enabled);
 }
 
 Tid queue_deq(queue_t * q){
+    int enabled = interrupts_set(0);
     if (q->root == NULL){
+        interrupts_set(enabled);
         return THREAD_NONE;
     }
     else{
@@ -55,12 +61,15 @@ Tid queue_deq(queue_t * q){
         if (q->root == NULL){
             q->tail = NULL;
         }
+        interrupts_set(enabled);
         return tid;
     }
 }
 
 Tid queue_exact(queue_t * q, Tid tid){
+    int enabled = interrupts_set(0);
     if (q->root == NULL){
+        interrupts_set(enabled);
         return THREAD_INVALID;
     }
     else{
@@ -73,6 +82,7 @@ Tid queue_exact(queue_t * q, Tid tid){
             if (q->root == NULL){
                 q->tail = NULL;
             }
+            interrupts_set(enabled);
             return tid;
         }
         queue_node_t * pre_node = q->root;
@@ -84,6 +94,7 @@ Tid queue_exact(queue_t * q, Tid tid){
         }
 
         if (node == NULL){
+            interrupts_set(enabled);
             return THREAD_INVALID;
         }
         else{
@@ -94,6 +105,7 @@ Tid queue_exact(queue_t * q, Tid tid){
                 q->tail = pre_node;
             }
         }
+        interrupts_set(enabled);
         return tid;
     }
 }
@@ -154,6 +166,7 @@ thread_id()
 void
 thread_stub(void (*thread_main)(void *), void *arg)
 {
+    interrupts_on();
 	thread_main(arg); // call thread_main() function with arg
 	thread_exit(0);
 }
@@ -161,7 +174,9 @@ thread_stub(void (*thread_main)(void *), void *arg)
 Tid
 thread_create(void (*fn) (void *), void *parg)
 {
+    int enabled = interrupts_set(0);
     if (num_thr == THREAD_MAX_THREADS){
+        interrupts_set(enabled);
         return THREAD_NOMORE;
     }
     Tid tid;
@@ -175,6 +190,7 @@ thread_create(void (*fn) (void *), void *parg)
     /*initialize the new thread block*/
     void *sp = malloc(THREAD_MIN_STACK);
     if (sp == NULL) {
+        interrupts_set(enabled);
         return THREAD_NOMEMORY;
     }
     threads[tid].setcontext_called = 0;
@@ -195,26 +211,31 @@ thread_create(void (*fn) (void *), void *parg)
 
     queue_enq(ready_queue, tid);
     num_thr += 1;
+    interrupts_set(enabled);
     return tid;
 }
 
 void free_exit_threads(queue_t * q){
+    int enabled = interrupts_set(0);
     while (q->root != NULL){
         Tid tid = queue_deq(q);
         free(threads[tid].context.uc_stack.ss_sp);
     }
+    interrupts_set(enabled);
 }
 
 Tid
 thread_yield(Tid want_tid){
-
+    int enabled = interrupts_set(0);
     Tid tid;
 
     if (want_tid == THREAD_SELF || want_tid == current_tid){
+        interrupts_set(enabled);
         return current_tid;
     }
     else if (want_tid == THREAD_ANY){
         if (ready_queue->root == NULL){
+            interrupts_set(enabled);
             return THREAD_NONE;
         }
         tid = queue_deq(ready_queue);
@@ -223,14 +244,17 @@ thread_yield(Tid want_tid){
     }
     else if (0 <= want_tid && want_tid < THREAD_MAX_THREADS){
         if (threads[want_tid].state == NOTVALID){
+            interrupts_set(enabled);
             return THREAD_INVALID;
         }
         tid = queue_exact(ready_queue, want_tid);
         if (tid < 0){
+            interrupts_set(enabled);
             return tid;
         }
     }
     else if (want_tid < 0 || want_tid > THREAD_MAX_THREADS - 1){
+        interrupts_set(enabled);
         return THREAD_INVALID;
     }
 
@@ -243,6 +267,7 @@ thread_yield(Tid want_tid){
         }
         threads[current_tid].setcontext_called = 0;
         threads[current_tid].state = RUNNING;
+        interrupts_set(enabled);
         return tid;
     }
     threads[current_tid].setcontext_called = 1;
@@ -250,13 +275,14 @@ thread_yield(Tid want_tid){
     queue_enq(ready_queue, current_tid);
     current_tid = tid;
     setcontext(&threads[tid].context);
-
+    interrupts_set(enabled);
     return THREAD_FAILED;
 }
 
 void
 thread_exit(int exit_code)
 {
+    int enabled = interrupts_set(0);
     threads[current_tid].state = NOTVALID;
 
     threads[current_tid].setcontext_called = 0;
@@ -266,19 +292,24 @@ thread_exit(int exit_code)
     num_thr -= 1;
     Tid tid = queue_deq(ready_queue);
     if (tid == THREAD_NONE){
+        interrupts_set(enabled);
         exit(exit_code);
     }
     current_tid = tid;
+    interrupts_set(enabled);
     setcontext(&threads[tid].context);
 }
 
 Tid
 thread_kill(Tid tid)
-{
+{   
+    int enabled = interrupts_set(0);
     if (tid == current_tid || tid < 0 || tid > THREAD_MAX_THREADS || threads[tid].state != READY){
+        interrupts_set(enabled);
         return THREAD_INVALID;
     }
     threads[tid].be_killed = 1;
+    interrupts_set(enabled);
     return tid;
 }
 

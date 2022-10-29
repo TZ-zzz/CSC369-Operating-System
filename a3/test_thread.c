@@ -330,9 +330,14 @@ test_preemptive()
 	long ii;
 	Tid potato_tids[NPOTATO];
 
-	unintr_printf("starting preemptive test\n");
-	unintr_printf("this test will take %d seconds\n", DURATION / 1000000);
+	/* print messages before turning on interrupt */
+	printf("starting preemptive test\n");
+	printf("this test will take %d seconds\n", DURATION / 1000000);
 	gettimeofday(&pstart, NULL);
+	
+	/* show interrupt handler output, we will turn it off later */
+	register_interrupt_handler(1);
+	
 	/* spin for some time, so you see the interrupt handler output */
 	spin(SIG_INTERVAL * 5);
 	interrupts_quiet();
@@ -570,24 +575,31 @@ test_wait_thread(int num)
 {
 	int exitcode; /* get exit status from thread that we wait for */	
 	int rand = ((double)random()) / RAND_MAX * 1000000;
+	int ret;
 
 	/* make sure that all threads are created before continuing */
 	/* we use atomic operations for synchronization because we assume that
 	 * lock/cv have not been implemented yet */
-	while (__sync_fetch_and_add(&done, 0) < 1) {
-	}
+	while (__sync_fetch_and_add(&done, 0) < 1);
+	
 	/* spin for a random time between 0-1 s */
 	spin(rand);
+	
 	if (num > 0) {
 		assert(interrupts_enabled());
 		/* wait on previous thread */
-		thread_wait(wait[num - 1], &exitcode);
+		ret = thread_wait(wait[num - 1], &exitcode);
 		assert(interrupts_enabled());
+		assert(ret == wait[num - 1]);
 		assert(exitcode == (num - 1 + THREAD_MAX_THREADS));
 		spin(rand / 10);
 		/* id should print in ascending order, from 1-127 */
 		unintr_printf("id = %d\n", num);
+	} else {
+		/* wait until everyone is sleeping */
+		while(thread_yield(THREAD_ANY) != THREAD_NONE);
 	}
+	
 	thread_exit(num + THREAD_MAX_THREADS); /* exit with unique value */
 }
 
@@ -628,7 +640,8 @@ test_wait(void)
 	/* Each thread will be waited on by the next thread, except for last,
 	 * So main thread only needs to wait for final child thread it created.
 	 */
-	thread_wait(wait[NTHREADS-1], &exitcode);
+	ret = thread_wait(wait[NTHREADS-1], &exitcode);
+	assert(ret == wait[NTHREADS-1]);
 	assert(exitcode == (NTHREADS - 1 + THREAD_MAX_THREADS));
 
 	mallinfo_check(&minfo_start);

@@ -140,7 +140,7 @@ thread_init(void)
     threads[0].setcontext_called = 0;
     threads[0].be_killed = 0;
     threads[0].wait_queue = wait_queue_create();
-    threads[0].exit_code = 10000;
+    threads[0].exit_code = -1;
     num_thr = 1;
     ready_queue = queue_initialize();
     exit_queue = queue_initialize();
@@ -209,7 +209,7 @@ thread_create(void (*fn) (void *), void *parg)
     threads[tid].be_killed = 0;
     threads[tid].state = READY;
     threads[tid].wait_queue = wait_queue_create();
-    threads[tid].exit_code = 10000;
+    threads[tid].exit_code = -1;
 	assert(!getcontext(&threads[tid].context));
 
     threads[tid].context.uc_mcontext.gregs[REG_RIP] = (greg_t) &thread_stub;
@@ -449,11 +449,11 @@ thread_wait(Tid tid, int *exit_code)
 		return THREAD_INVALID;
 	}
     thread_sleep(threads[tid].wait_queue);
-	if (threads[current_tid].exit_code != 10000){
+	if (threads[current_tid].exit_code != -1){
         if (exit_code != NULL){
             * exit_code = threads[current_tid].exit_code;
         }
-        threads[current_tid].exit_code = 10000;
+        threads[current_tid].exit_code = -1;
         interrupts_set(enabled);
         return tid;
     }
@@ -463,97 +463,131 @@ thread_wait(Tid tid, int *exit_code)
 
 struct lock {
     /* ... Fill this in ... */
+    Tid hold_pid;
+    queue_t * wq;
 };
 
 struct lock *
 lock_create()
 {
+    int enabled = interrupts_set(0);
     struct lock *lock;
 
     lock = malloc(sizeof(struct lock));
     assert(lock);
 
-    TBD();
-
+    lock->hold_pid = THREAD_INVALID;
+    lock->wq = wait_queue_create();
+    assert(lock->wq);
+    interrupts_set(enabled);
     return lock;
 }
 
 void
 lock_destroy(struct lock *lock)
 {
+    int enabled = interrupts_set(0);
     assert(lock != NULL);
-
-    TBD();
-
-    free(lock);
+    if (lock->hold_pid == THREAD_INVALID && lock->wq->root == NULL){
+        wait_queue_destroy(lock->wq);
+        free(lock);
+    }
+    interrupts_set(enabled);
 }
 
 void
 lock_acquire(struct lock *lock)
 {
+    int enabled = interrupts_set(0);
     assert(lock != NULL);
-
-    TBD();
+    while (lock->hold_pid != THREAD_INVALID){
+        thread_sleep(lock->wq);
+    }
+    lock->hold_pid = current_tid;
+    interrupts_set(enabled);
 }
 
 void
 lock_release(struct lock *lock)
 {
+    int enabled = interrupts_set(0);
     assert(lock != NULL);
-
-    TBD();
+    if (current_tid == lock->hold_pid){
+        lock->hold_pid = THREAD_INVALID;
+	    thread_wakeup(lock->wq, 1);
+    }
+    interrupts_set(enabled);
 }
 
 struct cv {
     /* ... Fill this in ... */
+    queue_t * wq;
 };
 
 struct cv *
 cv_create()
 {
+    int enabled = interrupts_set(0);
     struct cv *cv;
 
     cv = malloc(sizeof(struct cv));
     assert(cv);
 
-    TBD();
-
+    cv->wq = wait_queue_create();
+    interrupts_set(enabled);
     return cv;
 }
 
 void
 cv_destroy(struct cv *cv)
 {
+    int enabled = interrupts_set(0);
     assert(cv != NULL);
 
-    TBD();
-
+    if (cv->wq->root == NULL){
+        wait_queue_destroy(cv->wq);
+    }
     free(cv);
+    interrupts_set(enabled);
 }
 
 void
 cv_wait(struct cv *cv, struct lock *lock)
 {
+    int enabled = interrupts_set(0);
     assert(cv != NULL);
     assert(lock != NULL);
-
-    TBD();
+    if (lock->hold_pid == current_tid){
+        lock_release(lock);
+        thread_sleep(cv->wq);
+        interrupts_set(enabled);
+		lock_acquire(lock);
+    }
+    interrupts_set(enabled);
 }
 
 void
 cv_signal(struct cv *cv, struct lock *lock)
 {
+    int enabled = interrupts_set(0);
     assert(cv != NULL);
     assert(lock != NULL);
 
-    TBD();
+    if (lock->hold_pid == current_tid){
+        thread_wakeup(cv->wq, 0);
+    }
+    interrupts_set(enabled);
 }
 
 void
 cv_broadcast(struct cv *cv, struct lock *lock)
 {
+    int enabled = interrupts_set(0);
     assert(cv != NULL);
     assert(lock != NULL);
 
-    TBD();
+    if (lock->hold_pid == current_tid){
+        thread_wakeup(cv->wq, 1);
+    }
+    interrupts_set(enabled);
 }

@@ -5,9 +5,6 @@
 #include "interrupt.h"
 
 /* This is the wait queue structure */
-struct wait_queue {
-    /* ... Fill this in Assignment 3 ... */
-};
 
 /* This is the ready queue structure and corresponding funcitons */
 typedef struct queue_node{
@@ -16,7 +13,7 @@ typedef struct queue_node{
 
 } queue_node_t;
 
-typedef struct queue{
+typedef struct wait_queue{
     queue_node_t * root;
     queue_node_t * tail;
 }queue_t;

@@ -1,0 +1,55 @@
+basic test, 41, 44
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 0, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+preemptive test, 20, 20
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup test, 2, 10
+wakeup all test, 2, 6
+wakeup test, 10, 10
+wakeup test, 2, 10
+wakeup all test, 2, 6
+wakeup all test, 2, 6
+wakeup all test, 2, 6
+wakeup all test, 6, 6
+wakeup all test, 2, 6
+wakeup all test, 6, 6
+wakeup test, 10, 10
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 10, 14
+wait test, 14, 14

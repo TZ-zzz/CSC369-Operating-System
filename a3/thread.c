@@ -4,11 +4,6 @@
 #include "thread.h"
 #include "interrupt.h"
 
-/* This is the wait queue structure */
-struct wait_queue {
-    /* ... Fill this in Assignment 3 ... */
-};
-
 /* This is the ready queue structure and corresponding funcitons */
 typedef struct queue_node{
     struct queue_node * next;
@@ -16,7 +11,9 @@ typedef struct queue_node{
 
 } queue_node_t;
 
-typedef struct queue{
+/* This is the wait queue structure */
+typedef struct wait_queue {
+    /* ... Fill this in Assignment 3 ... */
     queue_node_t * root;
     queue_node_t * tail;
 }queue_t;
@@ -112,7 +109,7 @@ Tid queue_exact(queue_t * q, Tid tid){
 /* End of ready queue implementation*/
 
 
-enum state_t{READY, RUNNING, NOTVALID};
+enum state_t{READY, RUNNING, NOTVALID, BLOCK};
 
 /* This is the thread control block */
 struct thread {
@@ -121,6 +118,8 @@ struct thread {
     ucontext_t context;
     int setcontext_called;
     int be_killed;
+    int exit_code;
+    queue_t * wait_queue;
 };
 
 struct thread threads[THREAD_MAX_THREADS];
@@ -128,16 +127,20 @@ volatile Tid current_tid;
 volatile unsigned num_thr;
 queue_t * ready_queue;
 queue_t * exit_queue;
+Tid recent_tid;
 
 void
 thread_init(void)
 {
     /* Add necessary initialization for your threads library here. */
-	/* Initialize the thread control block for the first thread */
+	/* Initialize the thread control block for the first thread */\
+    recent_tid = 0;
     current_tid = 0;
     threads[0].state = RUNNING;
     threads[0].setcontext_called = 0;
     threads[0].be_killed = 0;
+    threads[0].wait_queue = wait_queue_create();
+    threads[0].exit_code = 10000;
     num_thr = 1;
     ready_queue = queue_initialize();
     exit_queue = queue_initialize();
@@ -179,13 +182,22 @@ thread_create(void (*fn) (void *), void *parg)
         interrupts_set(enabled);
         return THREAD_NOMORE;
     }
-    Tid tid;
-    for (int i = 0; i < THREAD_MAX_THREADS; i++){
+    Tid tid = -1;
+    for (int i = recent_tid + 1; i < THREAD_MAX_THREADS; i++){
         if (threads[i].state == NOTVALID){
             tid = i;
             break;
         }
     }
+    if (tid == -1){
+        for (int i = 0; i < THREAD_MAX_THREADS; i++){
+            if (threads[i].state == NOTVALID){
+                tid = i;
+                break;
+            }
+        }
+    }
+    recent_tid = tid;
 
     /*initialize the new thread block*/
     void *sp = malloc(THREAD_MIN_STACK);
@@ -196,6 +208,8 @@ thread_create(void (*fn) (void *), void *parg)
     threads[tid].setcontext_called = 0;
     threads[tid].be_killed = 0;
     threads[tid].state = READY;
+    threads[tid].wait_queue = wait_queue_create();
+    threads[tid].exit_code = 10000;
 	assert(!getcontext(&threads[tid].context));
 
     threads[tid].context.uc_mcontext.gregs[REG_RIP] = (greg_t) &thread_stub;
@@ -220,6 +234,8 @@ void free_exit_threads(queue_t * q){
     while (q->root != NULL){
         Tid tid = queue_deq(q);
         free(threads[tid].context.uc_stack.ss_sp);
+        wait_queue_destroy(threads[tid].wait_queue);
+        threads[tid].wait_queue = NULL;
     }
     interrupts_set(enabled);
 }
@@ -263,7 +279,7 @@ thread_yield(Tid want_tid){
     free_exit_threads(exit_queue);
     if (threads[current_tid].setcontext_called == 1){
         if (threads[current_tid].be_killed == 1){
-            thread_exit(0);
+            thread_exit(THREAD_KILLED);
         }
         threads[current_tid].setcontext_called = 0;
         threads[current_tid].state = RUNNING;
@@ -275,7 +291,6 @@ thread_yield(Tid want_tid){
     queue_enq(ready_queue, current_tid);
     current_tid = tid;
     setcontext(&threads[tid].context);
-    interrupts_set(enabled);
     return THREAD_FAILED;
 }
 
@@ -289,6 +304,15 @@ thread_exit(int exit_code)
     threads[current_tid].be_killed = 0;
     queue_enq(exit_queue, current_tid);
     queue_exact(ready_queue, current_tid);
+    queue_node_t * waiting_node = threads[current_tid].wait_queue->root;
+    while (waiting_node != NULL){
+        if (threads[waiting_node->tid].be_killed == 0){
+            threads[waiting_node->tid].exit_code = exit_code;
+            break;
+        }
+        waiting_node = waiting_node->next;
+    }
+    thread_wakeup(threads[current_tid].wait_queue, 1);
     num_thr -= 1;
     Tid tid = queue_deq(ready_queue);
     if (tid == THREAD_NONE){
@@ -296,7 +320,6 @@ thread_exit(int exit_code)
         exit(exit_code);
     }
     current_tid = tid;
-    interrupts_set(enabled);
     setcontext(&threads[tid].context);
 }
 
@@ -304,7 +327,7 @@ Tid
 thread_kill(Tid tid)
 {   
     int enabled = interrupts_set(0);
-    if (tid == current_tid || tid < 0 || tid > THREAD_MAX_THREADS || threads[tid].state != READY){
+    if (tid == current_tid || tid < 0 || tid > THREAD_MAX_THREADS || (threads[tid].state != READY && threads[tid].state != BLOCK)){
         interrupts_set(enabled);
         return THREAD_INVALID;
     }
@@ -321,28 +344,60 @@ thread_kill(Tid tid)
 struct wait_queue *
 wait_queue_create()
 {
+    int enabled = interrupts_set(0);
     struct wait_queue *wq;
 
     wq = malloc(sizeof(struct wait_queue));
     assert(wq);
 
-    TBD();
-
+    wq->root = wq->tail = NULL;
+    interrupts_set(enabled);
     return wq;
 }
 
 void
 wait_queue_destroy(struct wait_queue *wq)
 {
-    TBD();
+    while(wq->root != NULL){
+        queue_deq(wq);
+    }
     free(wq);
 }
 
 Tid
 thread_sleep(struct wait_queue *queue)
 {
-    TBD();
-    return THREAD_FAILED;
+    int enabled = interrupts_set(0);
+    if (queue == NULL){
+        interrupts_set(enabled);
+        return THREAD_INVALID;
+    }
+
+    Tid tid = queue_deq(ready_queue);
+    if (tid < 0){
+        interrupts_set(enabled);
+        return THREAD_NONE;
+    }
+
+    getcontext(&threads[current_tid].context);
+    free_exit_threads(exit_queue);
+    if (threads[current_tid].setcontext_called == 1){
+        if (threads[current_tid].be_killed == 1){
+            thread_exit(THREAD_KILLED);
+        }
+        threads[current_tid].setcontext_called = 0;
+        threads[current_tid].state = RUNNING;
+        interrupts_set(enabled);
+        return tid;
+    }
+    threads[current_tid].state = BLOCK;
+    queue_enq(queue, current_tid);
+    threads[current_tid].setcontext_called = 1;
+    current_tid = tid;
+    num_thr -= 1;
+    setcontext(&threads[tid].context);
+    interrupts_set(enabled);
+    return tid;
 }
 
 /* when the 'all' parameter is 1, wakeup all threads waiting in the queue.
@@ -350,7 +405,37 @@ thread_sleep(struct wait_queue *queue)
 int
 thread_wakeup(struct wait_queue *queue, int all)
 {
-    TBD();
+    int enabled = interrupts_set(0);
+    if (queue == NULL){
+        interrupts_set(enabled);
+        return 0;
+    }
+    if (all == 0){
+        Tid tid = queue_deq(queue);
+        if (tid == THREAD_NONE){
+            interrupts_set(enabled);
+            return 0;
+        }
+        else{
+            while (threads[tid].be_killed == 1){
+                tid = queue_deq(queue);
+            }
+            threads[tid].state = READY;
+            num_thr += 1;
+            queue_enq(ready_queue, tid);
+            interrupts_set(enabled);
+            return 1;
+        }
+    }
+    else if (all == 1){
+        int count = 0;
+        while (thread_wakeup(queue, 0) != 0){
+            count += 1;
+        }
+        interrupts_set(enabled);
+        return count;
+    }
+    interrupts_set(enabled);
     return 0;
 }
 
@@ -358,8 +443,22 @@ thread_wakeup(struct wait_queue *queue, int all)
 Tid
 thread_wait(Tid tid, int *exit_code)
 {
-    TBD();
-    return 0;
+    int enabled = interrupts_set(0);
+    if (tid < 0 || tid > THREAD_MAX_THREADS || tid == current_tid || threads[tid].state == NOTVALID || threads[tid].be_killed == 1){
+        interrupts_set(enabled);
+		return THREAD_INVALID;
+	}
+    thread_sleep(threads[tid].wait_queue);
+	if (threads[current_tid].exit_code != 10000){
+        if (exit_code != NULL){
+            * exit_code = threads[current_tid].exit_code;
+        }
+        threads[current_tid].exit_code = 10000;
+        interrupts_set(enabled);
+        return tid;
+    }
+    interrupts_set(enabled);
+	return THREAD_INVALID;
 }
 
 struct lock {

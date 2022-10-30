@@ -1,0 +1,16 @@
+interrupt.o: interrupt.c thread.h interrupt.h
+show_handler.o: show_handler.c thread.h interrupt.h test_thread.h
+test_basic.o: test_basic.c thread.h test_thread.h
+test_cv_broadcast.o: test_cv_broadcast.c thread.h interrupt.h \
+ test_thread.h
+test_cv_signal.o: test_cv_signal.c thread.h interrupt.h test_thread.h
+test_lock.o: test_lock.c thread.h interrupt.h test_thread.h
+test_preemptive.o: test_preemptive.c thread.h interrupt.h test_thread.h
+test_thread.o: test_thread.c thread.h interrupt.h test_thread.h
+test_wait.o: test_wait.c thread.h interrupt.h test_thread.h
+test_wait_exited.o: test_wait_exited.c thread.h interrupt.h test_thread.h
+test_wait_kill.o: test_wait_kill.c thread.h interrupt.h test_thread.h
+test_wait_parent.o: test_wait_parent.c thread.h interrupt.h test_thread.h
+test_wakeup.o: test_wakeup.c thread.h interrupt.h test_thread.h
+test_wakeup_all.o: test_wakeup_all.c thread.h interrupt.h test_thread.h
+thread.o: thread.c thread.h interrupt.h

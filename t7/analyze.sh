@@ -1,2 +1,2 @@
 #!/bin/bash
-python3 ./analyze.py "${1}"
+python3 ./analyze.py $1

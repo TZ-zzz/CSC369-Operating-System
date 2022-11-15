@@ -42,11 +42,11 @@ with open(file_path, "r") as file:
     print("  Modifies      {:>9}".format(counts["M"]))
     print("")
     print("Instructions:")
-    i_r =  {key: val for key, val in sorted(instructions.items(), key = lambda ele: ele[1], reverse = True)}
+    i_r =  sorted(instructions.items(), key = lambda ele: ele[1], reverse = True)
     for v in i_r:
-        print("{}000,{}".format(v, i_r[v]))
+        print("{}000,{}".format(v[0], v[1]))
     print("")
     print("Data:")
-    d_r =  {key: val for key, val in sorted(data.items(), key = lambda ele: ele[1], reverse = True)}
+    d_r =  sorted(data.items(), key = lambda ele: ele[1], reverse = True)
     for v in d_r:
-        print("{}000,{}".format(v, d_r[v]))
+        print("{}000,{}".format(v[0], v[1]))

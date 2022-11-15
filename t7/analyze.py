@@ -39,7 +39,7 @@ for line in fileinput.input(args.tracefile):
 
         counts[reftype] = counts[reftype] + 1
 
-        pg = vaddr // 4096
+        pg = hex(vaddr // 4096)
         if reftype == 'S' or reftype == 'M' or reftype == 'L':
                 if pg in data:
                     data[pg] += 1
@@ -62,9 +62,9 @@ print("")
 print("Instructions:")
 i_r =  {key: val for key, val in sorted(instructions.items(), key = lambda ele: ele[1], reverse = True)}
 for v in i_r:
-    print("0x{}0000,{}".format(v, i_r[v]))
+    print("{}000,{}".format(v, i_r[v]))
 print("")
 print("Data:")
 d_r =  {key: val for key, val in sorted(data.items(), key = lambda ele: ele[1], reverse = True)}
 for v in d_r:
-    print("0x{}0000,{}".format(v, d_r[v]))
+    print("{}000,{}".format(v, d_r[v]))

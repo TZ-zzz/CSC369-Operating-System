@@ -11,29 +11,29 @@ refills = 0
 # Process input trace
 with open(file_path, "r") as file:
     for line in file.readlines():
-            if line[0] == '=':
-                continue
-            tokens = line.strip().split()
-            reftype = tokens[0]
-            tokens = tokens[1].split(",")
-            vaddr = int(tokens[0], 16)
-            val = int(tokens[1])
+        if line[0] == '=':
+            continue
+        tokens = line.strip().split()
+        reftype = tokens[0]
+        tokens = tokens[1].split(",")
+        vaddr = int(tokens[0], 16)
+        val = int(tokens[1])
 
-            counts[reftype] = counts[reftype] + 1
+        counts[reftype] = counts[reftype] + 1
 
-            pg = hex(vaddr // 4096)
-            if reftype == 'S' or reftype == 'M' or reftype == 'L':
-                if pg in data:
-                    data[pg] += 1
-                else:
-                    data[pg] = 1
-            elif reftype == 'I':
-                if pg in instructions:
-                    instructions[pg] += 1
-                else:
-                    instructions[pg] = 1
+        pg = hex(vaddr // 4096)
+        if reftype == 'S' or reftype == 'M' or reftype == 'L':
+            if pg in data:
+                data[pg] += 1
             else:
-                print("Unexpected reftype " + reftype)
+                data[pg] = 1
+        elif reftype == 'I':
+            if pg in instructions:
+                instructions[pg] += 1
+            else:
+                instructions[pg] = 1
+        else:
+            print("Unexpected reftype " + reftype)
 
     print("Counts:")
     print("  Instructions  {}".format(counts["I"]))

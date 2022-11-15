@@ -36,10 +36,10 @@ with open(file_path, "r") as file:
             print("Unexpected reftype " + reftype)
 
     print("Counts:")
-    print("  Instructions  {}".format(counts["I"]))
-    print("  Loads         {}".format(counts["L"]))
-    print("  Stores        {}".format(counts["S"]))
-    print("  Modifies      {}".format(counts["M"]))
+    print("  Instructions  {:>9}".format(counts["I"]))
+    print("  Loads         {:>9}".format(counts["L"]))
+    print("  Stores        {:>9}".format(counts["S"]))
+    print("  Modifies      {:>9}".format(counts["M"]))
     print("")
     print("Instructions:")
     i_r =  {key: val for key, val in sorted(instructions.items(), key = lambda ele: ele[1], reverse = True)}

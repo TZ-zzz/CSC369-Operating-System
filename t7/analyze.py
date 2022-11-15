@@ -52,18 +52,18 @@ for line in fileinput.input(args.tracefile):
         else:
                 print("Unexpected reftype " + reftype)
 
-print("Counts:\n")
+print("Counts:")
 print("  Instructions  {}".format(counts["I"]))
 print("  Loads         {}".format(counts["L"]))
 print("  Stores        {}".format(counts["S"]))
 print("  Modifies      {}".format(counts["M"]))
 print("\n")
-print("Instructions:\n")
+print("Instructions:")
 i_r =  {key: val for key, val in sorted(instructions.items(), key = lambda ele: ele[1], reverse = True)}
 for v in i_r:
     print("0x{}0000,{}".format(v, i_r[v]))
 print("\n")
-print("Data:\n")
+print("Data:")
 d_r =  {key: val for key, val in sorted(data.items(), key = lambda ele: ele[1], reverse = True)}
 for v in d_r:
     print("0x{}0000,{}".format(v, d_r[v]))

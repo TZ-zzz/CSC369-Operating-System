@@ -39,16 +39,12 @@ for line in fileinput.input(args.tracefile):
         counts[reftype] = counts[reftype] + 1
 
         pg = vaddr // 4096
-        vaddr = pg * 4096
-
-        # Get or Set value for this vaddr
-        if reftype == 'S' or reftype == 'M':
+        if reftype == 'S' or reftype == 'M' or reftype == 'L':
                 if pg in data:
                     data[pg] += 1
                 else:
                     data[pg] = 1
-        elif reftype == 'I' or reftype == 'L':
-                # First reference?
+        elif reftype == 'I':
                 if pg in instructions:
                         instructions[pg] += 1
                 else:

@@ -43,13 +43,13 @@ for line in fileinput.input(args.tracefile):
 
         # Get or Set value for this vaddr
         if reftype == 'S' or reftype == 'M':
-                if pg in data.keys():
+                if pg in data:
                     data[pg] += 1
                 else:
                     data[pg] = 1
         elif reftype == 'I' or reftype == 'L':
                 # First reference?
-                if pg in instructions.keys():
+                if pg in instructions:
                         instructions[pg] += 1
                 else:
                         instructions[pg] = 1
@@ -65,9 +65,9 @@ print("\n")
 print("Instructions:\n")
 i_r =  {key: val for key, val in sorted(instructions.items(), key = lambda ele: ele[1], reverse = True)}
 for v in i_r:
-    print("0x{}0000,{}".format(v, instructions[v]))
+    print("0x{}0000,{}".format(v, i_r[v]))
 print("\n")
 print("Data:\n")
 d_r =  {key: val for key, val in sorted(data.items(), key = lambda ele: ele[1], reverse = True)}
 for v in d_r:
-    print("0x{}0000,{}".format(v, data[v]))
+    print("0x{}0000,{}".format(v, d_r[v]))

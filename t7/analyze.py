@@ -33,8 +33,9 @@ for line in fileinput.input(args.tracefile):
                 continue
         tokens = line.strip().split()
         reftype = tokens[0]
-        vaddr = int(tokens[1], 16)
-        val = int(tokens[2])
+        tokens = tokens[1].split(",")
+        vaddr = int(tokens[0], 16)
+        val = int(tokens[1])
 
         counts[reftype] = counts[reftype] + 1
 

@@ -29,6 +29,8 @@ size_t ref_count = 0;
 size_t evict_clean_count = 0;
 size_t evict_dirty_count = 0;
 
+pd_entry_t pd[PT_SIZE]; 
+
 /*
  * Allocates a frame to be used for the virtual page represented by p.
  * If all frames are in use, calls the replacement algorithm's evict_func to
@@ -57,7 +59,18 @@ static int allocate_frame(pt_entry_t *pte)
 		// Write victim page to swap, if needed, and update page table
 
 		// IMPLEMENTATION NEEDED
+		pt_entry_t *victim = coremap[frame].pte;
 
+		if (victim->value & DIRTY){
+			victim->swap_off = swap_pageout(frame, victim->swap_off);
+			victim->value |= ONSWAP;
+			evict_dirty_count += 1;
+		}
+		else {
+			evict_clean_count += 1;
+		}
+		victim->value &= ~VALID;
+		victim->value &= ~DIRTY;
 	}
 
 	// Record information for virtual page that will now be stored in frame
@@ -81,7 +94,34 @@ static int allocate_frame(pt_entry_t *pte)
  */
 void init_pagetable(void)
 {
+	for (int i = 0; i < PT_SIZE; i++){
+		pd[i].pt = NULL;
+	}
+}
 
+pd_entry_t init_second_level(void)
+{
+	pd_entry_t* pd_s = malloc(PT_SIZE * sizeof(pd_entry_t));
+	for (int i = 0; i < PT_SIZE; i++){
+		pd_s[i].pt = NULL;
+	}
+	pd_entry_t new;
+	new.pt = (vaddr_t) pd_s | VALID;
+
+	return new;
+}
+
+pd_entry_t init_third_level(void)
+{
+	pt_entry_t* pt_t = malloc(PT_SIZE * sizeof(pd_entry_t));
+	for (int i = 0; i < PT_SIZE; i++){
+		pt_t[i].value = NULL;
+		pt_t[i].swap_off = INVALID_SWAP;
+	}
+	pd_entry_t new;
+
+	new.pt = (vaddr_t) pt_t | VALID;
+	return new;
 }
 
 /*
@@ -123,22 +163,61 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 	(void)init_frame;
 
 	// IMPLEMENTATION NEEDED
+	vaddr_t top_index = PDPT_INDEX(vaddr);
+	vaddr_t middle_index = PD_INDEX(vaddr);
+	vaddr_t bottom_index = PT_INDEX(vaddr);
 
 	// Use your page table to find the page table entry (pte) for the 
 	// requested vaddr. 
+	if (!(pd[top_index].pt & VALID)){
+		pd[top_index] = init_second_level();
+	}
+	vaddr_t second_ptp = pd[top_index].pt;
+	pd_entry_t * second_pt = (pd_entry_t*) (second_ptp & ~VALID); // reset the valid bit to get the second table
 
+	if (!(second_pt[middle_index].pt & VALID)){
+		second_pt[middle_index] = init_third_level();
+	}
+	vaddr_t third_ptp = second_pt[middle_index].pt;
+	pt_entry_t* third_pt = (pt_entry_t*) (third_ptp & ~VALID); // reset the valid bit to get the last table 
 
+	pt_entry_t pte = third_pt[bottom_index]; 
 
 	// Check if pte is valid or not, on swap or not, and handle appropriately.
 	// You can use the allocate_frame() and init_frame() functions here,
 	// as needed.
+	if (!(pte.value & VALID)){
+		miss_count += 1;
+		int frame = allocate_frame(&pte);
+		if (pte.value & ONSWAP){
+			// we read from swap file
+			swap_pagein(frame, pte.swap_off);
+			pte.value = frame << PT_SIZE;
+			// set the flags of value
+			pte.value |= ~ONSWAP;
+			pte.value |= ~DIRTY;
 
-	
+		}
+		else{
+			// create a new one
+			init_frame(frame, vaddr);
+			pte.value = frame << PAGE_SHIFT;
+			pte.value |= DIRTY; 
+		}
+	}
+	else{
+		hit_count += 1;
+	}
 
 	// Make sure that pte is marked valid and referenced. Also mark it
 	// dirty if the access type indicates that the page will be written to.
 	// (Note that a page should be marked DIRTY when it is first accessed, 
 	// even if the type of first access is a read (Load or Instruction type).
+
+	pte.value |= VALID | REF;
+
+	if (type == "S" | type == "M") pte.value |= DIRTY;
+	frame = &pte;
 
 	// Call replacement algorithm's ref_func for this page.
 	assert(frame != -1);

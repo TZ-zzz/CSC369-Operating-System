@@ -107,7 +107,7 @@ pd_entry_t init_second_level(void)
 		pd[i].pt = 0;
 	}
 	pd_entry_t  new;
-	new.pt = (vaddr_t) pd | VALID;
+	new.pt = (uintptr_t) pd | VALID;
 
 	return new;
 }
@@ -121,7 +121,7 @@ pd_entry_t init_third_level(void)
 	}
 	pd_entry_t new;
 
-	new.pt = (vaddr_t) pt | VALID;
+	new.pt = (uintptr_t) pt | VALID;
 	return new;
 }
 
@@ -164,20 +164,20 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 	// (void)init_frame;
 
 	// IMPLEMENTATION NEEDED
-	vaddr_t top_index = (vaddr >> 36); // top 12 bit is for the first level
-	vaddr_t middle_index = (vaddr >> 24) & PT_MASK; // middle 12 bit is for the second level
-	vaddr_t bottom_index = (vaddr >> 12) & PT_MASK; // bottom 12 bit is for the third level
+	uintptr_t top_index = (vaddr >> 36); // top 12 bit is for the first level
+	uintptr_t middle_index = (vaddr >> 24) & PT_MASK; // middle 12 bit is for the second level
+	uintptr_t bottom_index = (vaddr >> 12) & PT_MASK; // bottom 12 bit is for the third level
 
 	if (!(pdpt[top_index].pt & VALID)){
 		pdpt[top_index] = init_second_level();
 	}
-	vaddr_t second_ptp = pdpt[top_index].pt;
+	uintptr_t second_ptp = pdpt[top_index].pt;
 	pd_entry_t *second_pt = (pd_entry_t *)(second_ptp & ~VALID); // reset the valid bit to get the second level pt
 
 	if (!(second_pt[middle_index].pt & VALID)){
 		second_pt[middle_index] = init_third_level();
 	}
-	vaddr_t third_ptp = second_pt[middle_index].pt;
+	uintptr_t third_ptp = second_pt[middle_index].pt;
 	pt_entry_t *third_pt = (pt_entry_t *)(third_ptp & ~VALID); // reset the valid bit to get the third level pt
 
 	pt_entry_t* pte = &(third_pt[bottom_index]);

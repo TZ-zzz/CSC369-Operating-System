@@ -30,7 +30,7 @@
 
 // Page directory entry (top and 2nd-level)
 typedef struct{
-	vaddr_t pt;
+	uintptr_t pt;
 } pd_entry_t;
 
 // Page table entry (3rd-level)

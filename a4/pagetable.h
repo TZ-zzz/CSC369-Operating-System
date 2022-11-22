@@ -25,16 +25,18 @@
 #define ONSWAP 0x8 //fourth bit
 #define PFN_OFFSET 12
 
-#define PT_SIZE (2^12)
+#define PT_SIZE 4096
+#define PT_MASK (PT_SIZE - 1)
 
-typedef struct pt_entry_s {
-	// Add any fields you need ...
+// Page directory entry (top and 2nd-level)
+typedef struct{
+	vaddr_t pt;
+} pd_entry_t;
+
+// Page table entry (3rd-level)
+typedef struct pt_entry_s{
 	int value;
 	off_t swap_off;
 } pt_entry_t;
-
-typedef struct pd_entry {
-	vaddr_t pt;
-} pd_entry_t;
 
 #endif /* __PAGETABLE_H__ */

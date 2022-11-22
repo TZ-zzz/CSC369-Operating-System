@@ -29,7 +29,7 @@ size_t ref_count = 0;
 size_t evict_clean_count = 0;
 size_t evict_dirty_count = 0;
 
-pd_entry_t pd[PT_SIZE]; 
+static pd_entry_t pdpt[PT_SIZE];
 
 /*
  * Allocates a frame to be used for the virtual page represented by p.
@@ -43,7 +43,7 @@ pd_entry_t pd[PT_SIZE];
 static int allocate_frame(pt_entry_t *pte)
 {
 	int frame = -1;
-	for (size_t i = 0; i < memsize; ++i) {
+	for (size_t i = 0; i < memsize; i++) {
 		if (!coremap[i].in_use) {
 			frame = i;
 			break;
@@ -59,19 +59,24 @@ static int allocate_frame(pt_entry_t *pte)
 		// Write victim page to swap, if needed, and update page table
 
 		// IMPLEMENTATION NEEDED
-		pt_entry_t *victim = coremap[frame].pte;
-
+		pt_entry_t * victim = coremap[frame].pte;
 		if (victim->value & DIRTY){
-			int swap_offset = swap_pageout(frame, victim->swap_off);
-			victim->swap_off = swap_offset;
-			victim->value = victim->value | ONSWAP;
+			int new_swap_offset = swap_pageout(frame, victim->swap_off);
+			if (new_swap_offset == INVALID_SWAP)
+			{
+				exit(1);
+			}
+			victim->swap_off = new_swap_offset;
 			evict_dirty_count += 1;
+			victim->value &= ~DIRTY;
+			victim->value |= ONSWAP;
 		}
-		else {
+		else{
+
 			evict_clean_count += 1;
 		}
 		victim->value &= ~VALID;
-		victim->value &= ~DIRTY;
+		// victim->value |= ONSWAP;
 	}
 
 	// Record information for virtual page that will now be stored in frame
@@ -96,36 +101,32 @@ static int allocate_frame(pt_entry_t *pte)
 void init_pagetable(void)
 {
 	for (int i = 0; i < PT_SIZE; i++){
-		pd[i].pt = 0;
+		pdpt[i].pt = 0;
 	}
 }
 
-pd_entry_t init_second_level(void)
+static pd_entry_t init_second_level(void)
 {
-	pd_entry_t* pd_s;
-	//  = malloc(PT_SIZE * sizeof(pd_entry_t));
-	posix_memalign((void **)&pd_s, PAGE_SIZE, PT_SIZE * sizeof(pd_entry_t));
+	pd_entry_t* pd = malloc(PT_SIZE * sizeof(pd_entry_t));
 	for (int i = 0; i < PT_SIZE; i++){
-		pd_s[i].pt = 0;
+		pd[i].pt = 0;
 	}
-	pd_entry_t new;
-	new.pt = (vaddr_t) pd_s | VALID;
+	pd_entry_t  new;
+	new.pt = (vaddr_t) pd | VALID;
 
 	return new;
 }
 
-pd_entry_t init_third_level(void)
+static pd_entry_t init_third_level(void)
 {
-	pt_entry_t* pt_t;
-	//  = malloc(PT_SIZE * sizeof(pt_entry_t));
-	posix_memalign((void **)&pt_t, PAGE_SIZE, PT_SIZE * sizeof(pt_entry_t));
+	pt_entry_t* pt = malloc(PT_SIZE * sizeof(pt_entry_t));
 	for (int i = 0; i < PT_SIZE; i++){
-		pt_t[i].value = 0;
-		pt_t[i].swap_off = INVALID_SWAP;
+		pt[i].value = 0;
+		pt[i].swap_off = INVALID_SWAP;
 	}
 	pd_entry_t new;
 
-	new.pt = (vaddr_t) pt_t | VALID;
+	new.pt = (vaddr_t) pt | VALID;
 	return new;
 }
 
@@ -168,50 +169,50 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 	// (void)init_frame;
 
 	// IMPLEMENTATION NEEDED
-	vaddr_t top_index = vaddr >> 36;
-	vaddr_t middle_index = (vaddr >> 24) & (4095);
-	vaddr_t bottom_index = (vaddr >> 12) & (4095);
+	vaddr_t top_index = (vaddr >> 36);
+	vaddr_t middle_index = (vaddr >> 24) & PT_MASK;
+	vaddr_t bottom_index = (vaddr >> 12) & PT_MASK;
 
 	// Use your page table to find the page table entry (pte) for the 
 	// requested vaddr. 
-	if (!(pd[top_index].pt & VALID)){
-		pd[top_index] = init_second_level();
+	if (!(pdpt[top_index].pt & VALID)){
+		pdpt[top_index] = init_second_level();
 	}
-	vaddr_t second_ptp = pd[top_index].pt;
-	pd_entry_t * second_pt = (pd_entry_t*) (second_ptp & ~VALID); // reset the valid bit to get the second table
+	vaddr_t second_ptp = pdpt[top_index].pt;
+	pd_entry_t *second_pt = (pd_entry_t *)(second_ptp & ~VALID); //mask the valid bit to get the addr
 
+	// Use 2nd-level page table and vaddr to get pointer to 3rd-level page table
 	if (!(second_pt[middle_index].pt & VALID)){
 		second_pt[middle_index] = init_third_level();
 	}
 	vaddr_t third_ptp = second_pt[middle_index].pt;
-	pt_entry_t* third_pt = (pt_entry_t*) (third_ptp & ~VALID); // reset the valid bit to get the last table 
+	pt_entry_t *third_pt = (pt_entry_t *)(third_ptp & ~VALID);
 
-	pt_entry_t* pte = &(third_pt[bottom_index]); 
+	// Use 3rd-level page table and vaddr to get pointer to page table entry
+	pt_entry_t* pte = &(third_pt[bottom_index]);
 
-	// Check if pte is valid or not, on swap or not, and handle appropriately.
-	// You can use the allocate_frame() and init_frame() functions here,
-	// as needed.
-	if (!(pte->value & VALID)){
+	// Check if pte is valid or not, on swap or not, and handle appropriately
+	// (Note that the first acess to a page should be marked DIRTY)
+	// Make sure that pte is marked valid and referenced. Also mark it
+	// dirty if the access type indicates that the page will be written to.
+	if (!(pte->value & VALID))
+	{
 		miss_count += 1;
 		frame = allocate_frame(pte);
 		if (pte->value & ONSWAP){
-			// we read from swap file
 			swap_pagein(frame, pte->swap_off);
 			pte->value = frame << PAGE_SHIFT;
-			// set the flags of value
-			pte->value |= ~ONSWAP;
-			pte->value |= ~DIRTY;
-
+			pte->value |= ONSWAP;
 		}
 		else{
-			// create a new one
 			init_frame(frame);
 			pte->value = frame << PAGE_SHIFT;
-			pte->value |= DIRTY; 
+			pte->value |= DIRTY;
 		}
 		pte->value |= VALID;
 	}
-	else{
+	else
+	{
 		hit_count += 1;
 		frame = pte->value >> PAGE_SHIFT;
 	}
@@ -225,7 +226,7 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 
 	if ((type == 'S') | (type == 'M')) {
 		pte->value |= DIRTY;
-		}
+	}
 
 	// Call replacement algorithm's ref_func for this page.
 	ref_count += 1;
@@ -245,3 +246,4 @@ void print_pagetable(void)
 void free_pagetable(void)
 {
 }
+

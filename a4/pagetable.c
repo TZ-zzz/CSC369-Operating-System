@@ -29,7 +29,7 @@ size_t ref_count = 0;
 size_t evict_clean_count = 0;
 size_t evict_dirty_count = 0;
 
-static pd_entry_t pdpt[PT_SIZE];
+pd_entry_t pdpt[PT_SIZE];
 
 /*
  * Allocates a frame to be used for the virtual page represented by p.
@@ -61,12 +61,7 @@ static int allocate_frame(pt_entry_t *pte)
 		// IMPLEMENTATION NEEDED
 		pt_entry_t * victim = coremap[frame].pte;
 		if (victim->value & DIRTY){
-			int new_swap_offset = swap_pageout(frame, victim->swap_off);
-			if (new_swap_offset == INVALID_SWAP)
-			{
-				exit(1);
-			}
-			victim->swap_off = new_swap_offset;
+			victim->swap_off = swap_pageout(frame, victim->swap_off);
 			evict_dirty_count += 1;
 			victim->value &= ~DIRTY;
 			victim->value |= ONSWAP;
@@ -105,7 +100,7 @@ void init_pagetable(void)
 	}
 }
 
-static pd_entry_t init_second_level(void)
+pd_entry_t init_second_level(void)
 {
 	pd_entry_t* pd = malloc(PT_SIZE * sizeof(pd_entry_t));
 	for (int i = 0; i < PT_SIZE; i++){
@@ -117,7 +112,7 @@ static pd_entry_t init_second_level(void)
 	return new;
 }
 
-static pd_entry_t init_third_level(void)
+pd_entry_t init_third_level(void)
 {
 	pt_entry_t* pt = malloc(PT_SIZE * sizeof(pt_entry_t));
 	for (int i = 0; i < PT_SIZE; i++){
@@ -169,26 +164,22 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 	// (void)init_frame;
 
 	// IMPLEMENTATION NEEDED
-	vaddr_t top_index = (vaddr >> 36);
-	vaddr_t middle_index = (vaddr >> 24) & PT_MASK;
-	vaddr_t bottom_index = (vaddr >> 12) & PT_MASK;
+	vaddr_t top_index = (vaddr >> 36); // top 12 bit is for the first level
+	vaddr_t middle_index = (vaddr >> 24) & PT_MASK; // middle 12 bit is for the second level
+	vaddr_t bottom_index = (vaddr >> 12) & PT_MASK; // bottom 12 bit is for the third level
 
-	// Use your page table to find the page table entry (pte) for the 
-	// requested vaddr. 
 	if (!(pdpt[top_index].pt & VALID)){
 		pdpt[top_index] = init_second_level();
 	}
 	vaddr_t second_ptp = pdpt[top_index].pt;
-	pd_entry_t *second_pt = (pd_entry_t *)(second_ptp & ~VALID); //mask the valid bit to get the addr
+	pd_entry_t *second_pt = (pd_entry_t *)(second_ptp & ~VALID); // reset the valid bit to get the second level pt
 
-	// Use 2nd-level page table and vaddr to get pointer to 3rd-level page table
 	if (!(second_pt[middle_index].pt & VALID)){
 		second_pt[middle_index] = init_third_level();
 	}
 	vaddr_t third_ptp = second_pt[middle_index].pt;
-	pt_entry_t *third_pt = (pt_entry_t *)(third_ptp & ~VALID);
+	pt_entry_t *third_pt = (pt_entry_t *)(third_ptp & ~VALID); // reset the valid bit to get the third level pt
 
-	// Use 3rd-level page table and vaddr to get pointer to page table entry
 	pt_entry_t* pte = &(third_pt[bottom_index]);
 
 	// Check if pte is valid or not, on swap or not, and handle appropriately

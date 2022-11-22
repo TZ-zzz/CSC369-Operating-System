@@ -35,6 +35,7 @@ struct frame {
 	bool in_use;    // true if frame is allocated, false if frame is free
 	struct pt_entry_s *pte; // Pointer back to pagetable entry (pte) for page
 	                        // stored in this frame
+	int frame;	  // Frame number (also index in coremap)
 	struct frame *next;
 	struct frame *prev;
 };

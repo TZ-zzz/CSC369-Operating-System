@@ -60,6 +60,7 @@ static int allocate_frame(pt_entry_t *pte)
 
 		// IMPLEMENTATION NEEDED
 		pt_entry_t * victim = coremap[frame].pte;
+
 		if (victim->value & DIRTY){
 			victim->swap_off = swap_pageout(frame, victim->swap_off);
 			evict_dirty_count += 1;
@@ -67,11 +68,10 @@ static int allocate_frame(pt_entry_t *pte)
 			victim->value |= ONSWAP;
 		}
 		else{
-
 			evict_clean_count += 1;
 		}
+
 		victim->value &= ~VALID;
-		// victim->value |= ONSWAP;
 	}
 
 	// Record information for virtual page that will now be stored in frame
@@ -199,7 +199,6 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 			pte->value = frame << PAGE_SHIFT;
 			pte->value |= DIRTY;
 		}
-		pte->value |= VALID;
 	}
 	else{
 		hit_count += 1;
@@ -211,7 +210,7 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 	// (Note that a page should be marked DIRTY when it is first accessed, 
 	// even if the type of first access is a read (Load or Instruction type).
 
-	pte->value |= REF;
+	pte->value |= VALID | REF;
 
 	if ((type == 'S') | (type == 'M')) {
 		pte->value |= DIRTY;
@@ -234,5 +233,29 @@ void print_pagetable(void)
 
 void free_pagetable(void)
 {
+	for (int i = 0; i < PT_SIZE; i++){
+		if (pdpt[i].pt & VALID){
+			pd_entry_t* second_pt = (pd_entry_t *)(pdpt[i].pt & ~VALID);
+			for (int j = 0; j < PT_SIZE; j++){
+				if (second_pt[j].pt & VALID){
+					pt_entry_t* third_pt = (pt_entry_t *)(second_pt[j].pt & ~VALID);
+					free(third_pt);
+				}
+			}
+			free(second_pt);
+		}
+	}
+}
+
+bool get_referenced(struct pt_entry_s *pte){
+	return pte->value & REF;
+}
+void set_referenced(struct pt_entry_s *pte, bool val){
+	if (val){
+		pte->value |= REF;
+	}
+	else{
+		pte->value &= ~REF;
+	}
 }
 

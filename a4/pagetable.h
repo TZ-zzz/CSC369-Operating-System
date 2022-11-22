@@ -25,7 +25,7 @@
 #define ONSWAP 0x8 //fourth bit
 #define PFN_OFFSET 12
 
-#define PT_SIZE 2^12
+#define PT_SIZE (2^12)
 
 typedef struct pt_entry_s {
 	// Add any fields you need ...

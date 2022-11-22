@@ -186,8 +186,7 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 	// (Note that the first acess to a page should be marked DIRTY)
 	// Make sure that pte is marked valid and referenced. Also mark it
 	// dirty if the access type indicates that the page will be written to.
-	if (!(pte->value & VALID))
-	{
+	if (!(pte->value & VALID)){
 		miss_count += 1;
 		frame = allocate_frame(pte);
 		if (pte->value & ONSWAP){
@@ -202,8 +201,7 @@ unsigned char *find_physpage(vaddr_t vaddr, char type)
 		}
 		pte->value |= VALID;
 	}
-	else
-	{
+	else{
 		hit_count += 1;
 		frame = pte->value >> PAGE_SHIFT;
 	}

@@ -26,7 +26,12 @@ int lru_evict(void)
 void lru_ref(int frame)
 {
 	struct frame* f = &list[frame];
-	if (f == head) {
+	if (head == NULL){
+		head = f;
+		tail = f;
+		return;
+	}
+	else if (f == head){
 		return;
 	}
 	if (f == tail) {
@@ -56,8 +61,7 @@ void lru_init(void)
 		list[i].next = NULL;
 		list[i].prev = NULL;
 	}
-	head = &list[0];
-	tail = &list[0];
+	head = tail = NULL;
 }
 
 /* Cleanup any data structures created in lru_init(). */

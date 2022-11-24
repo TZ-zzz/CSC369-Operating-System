@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
 	// replaying trace.
 	init_pagetable();
 	init_func();
-	//replay_trace(tfp);
+	replay_trace(tfp);
 	(void)replay_trace;
 	endtime = get_time();
 	bytes_used = get_bytes_used(&start_mallinfo);

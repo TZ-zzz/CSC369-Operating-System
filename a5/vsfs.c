@@ -96,7 +96,6 @@ static fs_ctx *get_fs(void)
 	return (fs_ctx*)fuse_get_context()->private_data;
 }
 
-
 /* Returns the inode number for the element at the end of the path
  * if it exists.  If there is any error, return -1.
  * Possible errors include:
@@ -106,7 +105,7 @@ static fs_ctx *get_fs(void)
 static int path_lookup(const char *path,  vsfs_ino_t *ino) {
 	if(path[0] != '/') {
 		fprintf(stderr, "Not an absolute path\n");
-		return -ENOSYS;
+		return -1;
 	} 
 
 	// TODO: complete this function and any helper functions
@@ -114,9 +113,64 @@ static int path_lookup(const char *path,  vsfs_ino_t *ino) {
 		*ino = VSFS_ROOT_INO;
 		return 0;
 	}
+	char* path_copy = strdup(path);
+	char* token = strtok(path_copy, "/");
+	fs_ctx* fs = get_fs();
+	vsfs_inode* current_inode = &(fs->itable[VSFS_ROOT_INO]);
 
-	
-	return -ENOSYS;
+	for (int i = 0; i < VSFS_NUM_DIRECT; i++){
+		if ((current_inode->i_direct[i] == VSFS_INO_MAX) || (!bitmap_isset(fs->dbmap, fs->sb->num_blocks, current_inode->i_direct[i]))){
+			break;
+		}
+		vsfs_dentry* entry = (vsfs_dentry*) (fs->image + current_inode->i_direct[i] * VSFS_BLOCK_SIZE);
+		for (int j = 0; j < (int) (VSFS_BLOCK_SIZE / sizeof(vsfs_dentry)); j++){
+			if (strcmp(entry[j].name, token) == 0 && entry[j].ino != VSFS_INO_MAX){
+				current_inode = &(fs->itable[entry[j].ino]);
+				token = strtok(NULL, "/");
+				if (token == NULL){
+					*ino = entry[j].ino;
+					return 0;
+				}
+			}
+		}
+	}
+
+	if (current_inode->i_indirect == 0){
+		return -1;
+	}
+	vsfs_blk_t* indirect = (vsfs_blk_t*) (fs->image + current_inode->i_indirect * VSFS_BLOCK_SIZE);
+	for (int i = 0; i < (int) (VSFS_BLOCK_SIZE / sizeof(vsfs_blk_t)); i++){
+		if ((indirect[i] == VSFS_INO_MAX) || (!bitmap_isset(fs->dbmap, fs->sb->num_blocks, indirect[i]))){
+			break;
+		}
+		vsfs_dentry* entry = (vsfs_dentry*) (fs->image + indirect[i] * VSFS_BLOCK_SIZE);
+		for (int j = 0; j < (int) (VSFS_BLOCK_SIZE / sizeof(vsfs_dentry)); j++){
+			if (strcmp(entry[j].name, token) == 0 && entry[j].ino != VSFS_INO_MAX){
+				current_inode = &(fs->itable[entry[j].ino]);
+				token = strtok(NULL, "/");
+				if (token == NULL){
+					*ino = entry[j].ino;
+					return 0;
+				}
+				break;
+			}
+		}
+	}
+
+	return -1;
+}
+
+
+static vsfs_inode * vsfs_get_inode(const char *path)
+{
+	vsfs_ino_t ino;
+	fs_ctx *fs = get_fs();
+	int ret = path_lookup(path, &ino);
+	if ((ino == VSFS_INO_MAX) | (ret == -1)) {
+		return NULL;
+	}
+	vsfs_inode *inode = &(fs->itable[ino]);
+	return inode;
 }
 
 /**
@@ -183,29 +237,36 @@ static int vsfs_statfs(const char *path, struct statvfs *st)
 static int vsfs_getattr(const char *path, struct stat *st)
 {
 	if (strlen(path) >= VSFS_PATH_MAX) return -ENAMETOOLONG;
-	fs_ctx *fs = get_fs();
+	// fs_ctx *fs = get_fs();
 
 	memset(st, 0, sizeof(*st));
 
-	//NOTE: This is just a placeholder that allows the file system to be 
-	//      mounted without errors.
-	//      You should remove this from your implementation.
-	if (strcmp(path, "/") == 0) {		
-		//NOTE: all the fields set below are required and must be set 
-		// according to the information stored in the corresponding inode
-		st->st_mode = S_IFDIR | 0777;
-		st->st_nlink = 2;
-		st->st_size = 0;
-		st->st_blocks = 0 * VSFS_BLOCK_SIZE / 512;
-		st->st_mtim = (struct timespec){0};
-		return 0;
+	//TODO: lookup the inode for given path and, if it exists, fill in the
+	// required fields based on the information stored in the inode.
+
+	// vsfs_ino_t ino = VSFS_INO_MAX;
+	// int ret = path_lookup(path, &ino);
+	
+	// if (ret == -1){
+	// 	assert(ino == VSFS_INO_MAX);
+	// 	return -ENOENT;
+	// }
+	// vsfs_inode *inode = &(fs->itable[ino]);
+
+	vsfs_inode * inode = vsfs_get_inode(path);
+	if (inode == NULL){
+		return -ENOENT;
 	}
 
-	//TODO: lookup the inode for given path and, if it exists, fill in the
-	// required fields based on the information stored in the inode
-	(void)fs;
-	(void)path_lookup;
-	return -ENOSYS;
+	st->st_mode = inode->i_mode;
+	st->st_nlink = inode->i_nlink;
+	st->st_size = inode->i_size;
+	st->st_blocks = inode->i_blocks * VSFS_BLOCK_SIZE / 512;
+	if (inode->i_blocks >= VSFS_NUM_DIRECT){
+		st->st_blocks += VSFS_BLOCK_SIZE / 512;
+	}
+	st->st_mtim = inode->i_mtime;
+	return 0;
 }
 
 /**
@@ -235,20 +296,57 @@ static int vsfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	(void)fi;// unused
 	fs_ctx *fs = get_fs();
 
-	//NOTE: This is just a placeholder that allows the file system to be mounted
-	// without errors. You should remove this from your implementation.
-	if (strcmp(path, "/") == 0) {
-		filler(buf, "." , NULL, 0);
-		filler(buf, "..", NULL, 0);
-		return 0;
-	}
-
 	//TODO: lookup the directory inode for given path and iterate through its
 	// directory entries
-	(void)fs;
-	return -ENOSYS;
-}
+	vsfs_inode * inode = vsfs_get_inode(path);
 
+	int num_entries = div_round_up(inode->i_size, sizeof(vsfs_dentry));
+	int num_blocks = inode->i_blocks;
+	int dentry_per_block = VSFS_BLOCK_SIZE / sizeof(vsfs_dentry);
+
+	// check the direct blocks
+	for (int i = 0; i < VSFS_NUM_DIRECT; i++){
+		if (num_blocks == 0){
+			break;
+		}
+		vsfs_dentry * dentry = (vsfs_dentry *) (fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE);
+		for (int j = 0; j < dentry_per_block; j++){
+
+			if (dentry[j].ino != VSFS_INO_MAX) {
+				if (filler(buf, dentry[j].name, NULL, 0) != 0){
+					return -ENOMEM;
+				}
+				num_entries--;
+				if (num_entries == 0) {
+					break;
+				}
+			}
+		}
+		num_blocks--;
+	}
+
+	// inode has more than VSFS_NUM_DIRECT blocks, check indirect block
+	if (num_blocks > 0){
+		vsfs_blk_t * indirect = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+		for (int i = 0; i < num_blocks; i++){
+			vsfs_dentry * dentry = (vsfs_dentry *) (fs->image + indirect[i] * VSFS_BLOCK_SIZE);
+			for (int j = 0; j < dentry_per_block; j++){
+
+				if (dentry[j].ino != VSFS_INO_MAX) {
+					if (filler(buf, dentry[j].name, NULL, 0) != 0){
+						return -ENOMEM;
+					}
+					num_entries--;
+					if (num_entries == 0) {
+						return 0;
+					}
+				}
+			}
+		}
+	}
+	return 0;
+
+}
 
 /**
  * Create a directory.
@@ -334,10 +432,95 @@ static int vsfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	fs_ctx *fs = get_fs();
 
 	//TODO: create a file at given path with given mode
-	(void)path;
-	(void)mode;
-	(void)fs;
-	return -ENOSYS;
+	char * path_copy = strdup(path);
+	char * token = strtok(path_copy, "/");
+	vsfs_inode * parent = &fs->itable[VSFS_ROOT_INO];
+	vsfs_dentry * last_block;
+	// find the last block of parent directory
+	if (parent->i_blocks <= VSFS_NUM_DIRECT) {
+		last_block = (vsfs_dentry *) (fs->image + parent->i_direct[parent->i_blocks - 1] * VSFS_BLOCK_SIZE);
+	}
+	else{
+		vsfs_blk_t * indirect = (vsfs_blk_t *) (fs->image + parent->i_indirect * VSFS_BLOCK_SIZE);
+		last_block = (vsfs_dentry *) (fs->image + indirect[parent->i_blocks - VSFS_NUM_DIRECT - 1] * VSFS_BLOCK_SIZE);
+	}
+
+	int entry_per_block = VSFS_BLOCK_SIZE / sizeof(vsfs_dentry);
+	vsfs_dentry * new;
+	int i;
+	for (i = 0; i < entry_per_block; i++){
+		if (last_block[i].ino == VSFS_INO_MAX){
+			new = &last_block[i];
+			break;
+		}
+	}
+	// the last block is full and need a new block or put it in indirect block
+	if (i == entry_per_block){
+		vsfs_dentry * new_block;
+		// root directory haven't used all direct blocks
+		if (parent->i_blocks < VSFS_NUM_DIRECT){
+			if (bitmap_alloc(fs->dbmap, fs->sb->num_blocks, &parent->i_direct[parent->i_blocks]) != 0){
+				return -ENOSPC;
+			}
+			new_block = (vsfs_dentry *) (fs->image + parent->i_direct[parent->i_blocks] * VSFS_BLOCK_SIZE);
+		}
+		// root directory have used all direct blocks but haven't used indirect block
+		else if (parent->i_blocks == VSFS_NUM_DIRECT){
+			if (bitmap_alloc(fs->dbmap, fs->sb->num_blocks, &parent->i_indirect) != 0){
+				return -ENOSPC;
+			}
+			fs->sb->free_blocks--;
+			vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + parent->i_indirect * VSFS_BLOCK_SIZE);
+			if (bitmap_alloc(fs->dbmap, fs->sb->num_blocks, &indirect_block[0]) != 0){
+				return -ENOSPC;
+			}
+			new_block = (vsfs_dentry *) (fs->image + indirect_block[0] * VSFS_BLOCK_SIZE);
+		}
+		// root directory have used all direct blocks and use indirect block
+		else{
+			if (parent->i_blocks == VSFS_NUM_DIRECT + VSFS_BLOCK_SIZE / sizeof(vsfs_blk_t)){ // used up all blocks, the fs is full
+				return -ENOSPC;
+			}
+			vsfs_blk_t * indirect = (vsfs_blk_t *) (fs->image + parent->i_indirect * VSFS_BLOCK_SIZE);
+			if (bitmap_alloc(fs->dbmap, fs->sb->num_blocks, &indirect[parent->i_blocks - VSFS_NUM_DIRECT]) != 0){
+				return -ENOSPC;
+			}
+			new_block = (vsfs_dentry *) (fs->image + indirect[parent->i_blocks - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE);
+		}
+		// update parent directory and superblock information
+		parent->i_blocks++;
+		parent->i_size += VSFS_BLOCK_SIZE;
+		fs->sb->free_blocks--;
+
+		// initialize the new block
+		for (int j = 0; j < entry_per_block; j++){
+			new_block[j].ino = VSFS_INO_MAX;
+		}
+		// our new entry is the first entry in the new block
+		new = &new_block[0];
+	}
+	// update parent directory modify time
+	if (clock_gettime(CLOCK_REALTIME, &parent->i_mtime) != 0){
+		perror("clock_gettime");
+	}
+	// allocate a new inode for the new file
+	if (bitmap_alloc(fs->ibmap, fs->sb->num_inodes, &new->ino) != 0){
+		return -ENOSPC;
+	}
+	fs->sb->free_inodes--;
+	strncpy(new->name, token, VSFS_NAME_MAX);
+	vsfs_inode * new_inode = &fs->itable[new->ino];
+
+	// initialize the new inode
+	new_inode->i_mode = mode;
+	new_inode->i_size = 0;
+	new_inode->i_blocks = 0;
+	new_inode->i_nlink = 1;
+	if (clock_gettime(CLOCK_REALTIME, &new_inode->i_mtime) != 0){
+		perror("clock_gettime");
+	}
+
+	return 0;
 }
 
 /**
@@ -443,11 +626,125 @@ static int vsfs_truncate(const char *path, off_t size)
 	fs_ctx *fs = get_fs();
 
 	//TODO: set new file size, possibly "zeroing out" the uninitialized range
-	(void)path;
-	(void)size;
-	(void)fs;
-	return -ENOSYS;
+	vsfs_inode * inode = vsfs_get_inode(path);
+	uint32_t old_size = inode->i_size;
+	if ((uint32_t) size > (VSFS_NUM_DIRECT + (VSFS_BLOCK_SIZE / sizeof(vsfs_blk_t))) * VSFS_BLOCK_SIZE){
+		return -EFBIG;
+	}
+	if (old_size < size) {
+		uint32_t num_blocks = div_round_up(size, VSFS_BLOCK_SIZE) - inode->i_blocks;
+		if (num_blocks == inode->i_blocks){
+			// no need to allocate new blocks
+			inode->i_size = size;
+			if (clock_gettime(CLOCK_REALTIME, &inode->i_mtime) != 0){
+				perror("clock_gettime");
+			}
+			return 0;
+		}
+		// allocate new blocks
+		else {
+			int blocks_need = num_blocks - inode->i_blocks;
+			int direct_block_need = 0;
+			int indirect_block_need = 0;
+			if (inode->i_blocks < VSFS_NUM_DIRECT){
+				direct_block_need = (blocks_need <= VSFS_NUM_DIRECT - (int) inode->i_blocks) ? blocks_need : VSFS_NUM_DIRECT - (int) inode->i_blocks;
+				indirect_block_need = (blocks_need - direct_block_need >= 0) ? blocks_need - direct_block_need : 0;
+			}
+			else {
+				indirect_block_need = blocks_need;
+			}
+			// allocate direct blocks
+			if (direct_block_need > 0){
+				for (int i = 0; i < direct_block_need; i++){
+					if (bitmap_alloc(fs->dbmap, fs->sb->num_blocks, &inode->i_direct[inode->i_blocks + i]) != 0){
+						return -ENOSPC;
+					}
+					fs->sb->free_blocks--;
+					inode -> i_blocks++;
+					
+					memset((int *) fs->image + inode->i_direct[inode->i_blocks] * VSFS_BLOCK_SIZE, 0, VSFS_BLOCK_SIZE);//
+				}
+			}
+			if (indirect_block_need > 0) {
+				if (inode->i_blocks == VSFS_NUM_DIRECT){
+					if (bitmap_alloc(fs->dbmap, fs->sb->num_blocks, &inode->i_indirect) != 0){
+						return -ENOSPC;
+					}
+					fs->sb->free_blocks--;
+				}
+				vsfs_blk_t * indirect_block = (vsfs_blk_t *) fs->image + inode->i_indirect * VSFS_BLOCK_SIZE;
+				for (int i = 0; i < indirect_block_need; i++){
+					if (bitmap_alloc(fs->dbmap, fs->sb->num_blocks, &indirect_block[inode->i_blocks - VSFS_NUM_DIRECT + i]) != 0){
+						return -ENOSPC;
+					}
+					fs->sb->free_blocks--;
+					inode->i_blocks++;
+					memset((int *) fs->image + indirect_block[inode->i_blocks - VSFS_NUM_DIRECT], 0, VSFS_BLOCK_SIZE);
+				}
+			}
+			// update inode
+			inode->i_size = size;
+			if (clock_gettime(CLOCK_REALTIME, &(inode->i_mtime)) != 0) {
+				perror("clock_gettime");
+			}
+			
+		}
+
+	}
+	else{
+		if (div_round_up(old_size, VSFS_BLOCK_SIZE) == div_round_up(size, VSFS_BLOCK_SIZE)){
+			inode->i_size = size;
+			if (clock_gettime(CLOCK_REALTIME, &(inode->i_mtime)) != 0) {
+				perror("clock_gettime");
+			}
+			return 0;
+		}
+		else{
+			vsfs_blk_t old_blocks = inode->i_blocks;
+			uint32_t num_blocks = old_blocks - div_round_up(size, VSFS_BLOCK_SIZE);
+			int direct_block_free = 0;
+			int indirect_block_free = 0;
+			if (inode->i_blocks > VSFS_NUM_DIRECT){
+				direct_block_free = (div_round_up(size, VSFS_BLOCK_SIZE) > VSFS_NUM_DIRECT) ? 0 : VSFS_NUM_DIRECT - div_round_up(size, VSFS_BLOCK_SIZE);
+				indirect_block_free = (div_round_up(size, VSFS_BLOCK_SIZE) > VSFS_NUM_DIRECT) ? num_blocks : num_blocks - direct_block_free;
+			}
+			else {
+				direct_block_free = num_blocks;
+			}
+			if (indirect_block_free > 0){
+				indirect_block_free = ((inode->i_blocks - VSFS_NUM_DIRECT) < num_blocks - direct_block_free) ? inode->i_blocks - VSFS_NUM_DIRECT : num_blocks - direct_block_free; 
+				vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+				for (int i = 0; i < indirect_block_free; i++){
+					vsfs_blk_t index = indirect_block[inode->i_blocks - VSFS_NUM_DIRECT - 1];
+					bitmap_free(fs->dbmap, fs->sb->num_blocks, index);
+					indirect_block[index] = 0;
+					fs->sb->free_blocks++;
+					inode->i_blocks --;
+				}
+				if (inode->i_blocks == VSFS_NUM_DIRECT){
+					bitmap_free(fs->dbmap, fs->sb->num_blocks, inode->i_indirect);
+					inode->i_indirect = 0;
+					fs->sb->free_blocks++;
+				}
+			}
+			if (direct_block_free > 0){
+				for (int i = 0; i < direct_block_free; i++){
+					bitmap_free(fs->dbmap, fs->sb->num_blocks, inode->i_direct[VSFS_NUM_DIRECT - 1 - i]);
+					inode->i_direct[inode->i_blocks - 1] = 0;
+					fs->sb->free_blocks++;
+					inode->i_blocks --;
+				}
+			}
+			inode->i_size = size;
+			if (clock_gettime(CLOCK_REALTIME, &(inode->i_mtime)) != 0) {
+				perror("clock_gettime");
+			}
+		}
+		
+	}
+	return 0;
 }
+
 
 
 /**
@@ -478,12 +775,70 @@ static int vsfs_read(const char *path, char *buf, size_t size, off_t offset,
 	fs_ctx *fs = get_fs();
 
 	//TODO: read data from the file at given offset into the buffer
-	(void)path;
-	(void)buf;
-	(void)size;
-	(void)offset;
-	(void)fs;
-	return -ENOSYS;
+	vsfs_inode * inode = vsfs_get_inode(path);
+
+	if ((vsfs_blk_t) offset > inode->i_size){
+		return 0; 
+	}
+	else if (offset + size > inode->i_size){
+		size = inode->i_size - offset;
+	}
+	if (size == 0){
+		return 0;
+	}
+	vsfs_blk_t start = offset / VSFS_BLOCK_SIZE;
+	off_t start_offset = offset % VSFS_BLOCK_SIZE;
+	vsfs_blk_t end = (offset + size) / VSFS_BLOCK_SIZE;
+	off_t end_offset = (offset + size) % VSFS_BLOCK_SIZE;
+	if (start < VSFS_NUM_DIRECT){
+		if (end < VSFS_NUM_DIRECT){
+			for (vsfs_blk_t i = start; i <= end; i++){
+				if (i == start){
+					memcpy(buf, fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE + start_offset, VSFS_BLOCK_SIZE - start_offset);
+				}
+				else if (i == end){
+					memcpy(buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, end_offset);
+				}
+				else {
+					memcpy(buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, VSFS_BLOCK_SIZE);
+				}
+			}
+		}
+		else {
+			for (vsfs_blk_t i = start; i < VSFS_NUM_DIRECT; i++){
+				if (i == start){
+					memcpy(buf, fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE + start_offset, VSFS_BLOCK_SIZE - start_offset);
+				}
+				else {
+					memcpy(buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, VSFS_BLOCK_SIZE);
+				}
+			}
+			vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+			for (vsfs_blk_t i = VSFS_NUM_DIRECT; i <= end; i++){
+				if (i == end){
+					memcpy(buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, end_offset);
+				}
+				else {
+					memcpy(buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, VSFS_BLOCK_SIZE);
+				}
+			}
+		}
+	}
+	else {
+		vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+		for (vsfs_blk_t i = start; i <= end; i++){
+			if (i == start){
+				memcpy(buf, fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE + start_offset, VSFS_BLOCK_SIZE - start_offset);
+			}
+			else if (i == end){
+				memcpy(buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, end_offset);
+			}
+			else {
+				memcpy(buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, VSFS_BLOCK_SIZE);
+			}
+		}
+	}
+	return size;
 }
 
 /**
@@ -518,13 +873,69 @@ static int vsfs_write(const char *path, const char *buf, size_t size,
 
 	//TODO: write data from the buffer into the file at given offset, possibly
 	// "zeroing out" the uninitialized range
-	(void)path;
-	(void)buf;
-	(void)size;
-	(void)offset;
-	(void)fs;
+	vsfs_inode * inode = vsfs_get_inode(path);
+	if ((vsfs_blk_t) offset > inode->i_size){
+		vsfs_truncate(path, VSFS_BLOCK_SIZE);
+	}
+	else if (offset + size > inode->i_size){
+		size = inode->i_size - offset;
+	}
+	if (size == 0){
+		return 0;
+	}
+	vsfs_blk_t start = offset / VSFS_BLOCK_SIZE;
+	vsfs_blk_t end = (offset + size - 1) / VSFS_BLOCK_SIZE;
+	vsfs_blk_t start_offset = offset % VSFS_BLOCK_SIZE;
+	vsfs_blk_t end_offset = (offset + size) % VSFS_BLOCK_SIZE;
+	if (start < VSFS_NUM_DIRECT){
+		if (end < VSFS_NUM_DIRECT){
+			for (vsfs_blk_t i = start; i <= end; i++){
+				if (i == start){
+					memcpy(fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE + start_offset, buf, VSFS_BLOCK_SIZE - start_offset);
+				}
+				else {
+					memcpy(fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, VSFS_BLOCK_SIZE);
+				}
+			}
+		}
+		else {
+			for (vsfs_blk_t i = start; i < VSFS_NUM_DIRECT; i++){
+				if (i == start){
+					memcpy(fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE + start_offset, buf, VSFS_BLOCK_SIZE - start_offset);
+				}
+				else {
+					memcpy(fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, VSFS_BLOCK_SIZE);
+				}
+			}
+			vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+			for (vsfs_blk_t i = VSFS_NUM_DIRECT; i <= end; i++){
+				if (i == end){
+					memcpy(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, end_offset);
+				}
+				else {
+					memcpy(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, VSFS_BLOCK_SIZE);
+				}
+			}
+		}
+	}
+	else {
+		vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+		for (vsfs_blk_t i = start; i <= end; i++){
+			if (i == start){
+				memcpy(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE + start_offset, buf, VSFS_BLOCK_SIZE - start_offset);
+			}
+			else if (i == end){
+				memcpy(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, end_offset);
+			}
+			else {
+				memcpy(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, buf + (i - start) * VSFS_BLOCK_SIZE - start_offset, VSFS_BLOCK_SIZE);
+			}
+		}
+	}
+
 	return -ENOSYS;
 }
+
 
 
 static struct fuse_operations vsfs_ops = {

@@ -167,12 +167,16 @@ static bool mkfs(void *image, size_t size, mkfs_opts *opts)
 	bitmap_set(dbmap, nblks, VSFS_DMAP_BLKNUM, true); // data bitmap block
 	
 	// TODO: Calculate size of inode table and mark inode table blocks allocated.
-	(void)inodes_per_block;
+	inodes_per_block = VSFS_BLOCK_SIZE / sizeof(vsfs_inode);
+	int inode_table_blocks = (opts->n_inodes + inodes_per_block - 1) / inodes_per_block;
+	for (int i = 0; i < inode_table_blocks; i++) {
+		bitmap_set(dbmap, nblks, VSFS_ITBL_BLKNUM + i, true);
+	}
 	
 
 	// TODO: Initialize the root directory.
 	// 1. Mark root directory inode allocated in inode bitmap
-
+	bitmap_set(ibmap, opts->n_inodes, VSFS_ROOT_INO, true);
 	
 
 	// 2. Initialize fields of root dir inode (the mtime is done for you)
@@ -185,24 +189,47 @@ static bool mkfs(void *image, size_t size, mkfs_opts *opts)
 	}
 	
 	// 3. Allocate a data block for root directory; record it in root inode
-	(void)root_entries;
+	root_entries = (vsfs_dentry *)(image + (VSFS_ITBL_BLKNUM + inode_table_blocks) * VSFS_BLOCK_SIZE);
+	bitmap_set(dbmap, nblks, VSFS_ITBL_BLKNUM + inode_table_blocks, true);
 
+	root_ino->i_mode = S_IFDIR | 0777;
+	root_ino->i_nlink = 2;
+	root_ino->i_blocks = 1;
+	root_ino->i_size = VSFS_BLOCK_SIZE;
+
+	root_ino->i_direct[0] = VSFS_ITBL_BLKNUM + inode_table_blocks;
+	for (int i = 1; i < VSFS_NUM_DIRECT; i++) {
+		root_ino->i_direct[i] = VSFS_INO_MAX;
+	}
+	root_ino->i_indirect = 0;
 
 	
 	// 4. Create '.' and '..' entries in root dir data block.
+	root_entries[0].ino = VSFS_ROOT_INO;
+	strncpy(root_entries[0].name, ".", VSFS_NAME_MAX);
+	root_entries[1].ino = VSFS_ROOT_INO;
+	strncpy(root_entries[1].name, "..", VSFS_NAME_MAX);
 
 
 	
 	// 5. Initialize other dir entries in block to invalid / unused state
 	//    Since 0 is a valid inode, use VSFS_INO_MAX to indicate invalid.
-
-
+	for (int i = 2; i < (int) (VSFS_BLOCK_SIZE / sizeof(vsfs_dentry)); i++) {
+		root_entries[i].ino = VSFS_INO_MAX;
+	}
 	
 	
 	// TODO: Initialize fields of superblock after everything else succeeds.
 	// Set start of data region to first block after inode table.
 	sb = (vsfs_superblock *)image;
-	(void)sb;
+	sb->magic = VSFS_MAGIC;
+	sb->size = size;
+	sb->num_inodes = opts->n_inodes;
+	sb->free_inodes = opts->n_inodes - 1;
+	sb->num_blocks = nblks;
+	sb->free_blocks =  nblks - 3 - (inode_table_blocks + 1);
+	sb->data_region = VSFS_ITBL_BLKNUM + inode_table_blocks;
+
 	
 	ret = true;
  out:

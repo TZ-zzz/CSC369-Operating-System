@@ -68,7 +68,7 @@ bool fs_ctx_init(fs_ctx *fs, void *image, size_t size)
 
 	// TODO: Initialize anything else that you add to the fs context.
 	
-	return false;
+	return true;
 }
 
 

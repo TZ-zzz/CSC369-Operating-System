@@ -632,7 +632,7 @@ static int vsfs_truncate(const char *path, off_t size)
 		return -EFBIG;
 	}
 	if (old_size < size) {
-		uint32_t num_blocks = div_round_up(size, VSFS_BLOCK_SIZE) - inode->i_blocks;
+		uint32_t num_blocks = div_round_up(size, VSFS_BLOCK_SIZE);
 		if (num_blocks == inode->i_blocks){
 			// no need to allocate new blocks
 			inode->i_size = size;
@@ -644,6 +644,7 @@ static int vsfs_truncate(const char *path, off_t size)
 		// allocate new blocks
 		else {
 			int blocks_need = num_blocks - div_round_up(old_size, VSFS_BLOCK_SIZE);
+			assert(blocks_need >= 0);
 			int direct_block_need = 0;
 			int indirect_block_need = 0;
 			if (inode->i_blocks < VSFS_NUM_DIRECT){
@@ -684,6 +685,13 @@ static int vsfs_truncate(const char *path, off_t size)
 					inode->i_blocks++;
 				}
 			}
+			int n_blocks = div_round_up(size, VSFS_BLOCK_SIZE);
+			for (int i = 0; i < n_blocks - VSFS_NUM_DIRECT; i++){
+				assert(inode->i_indirect != 0);
+				vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+				assert(indirect_block[i] != 0);
+			}
+
 			// update inode
 			inode->i_size = size;
 			if (clock_gettime(CLOCK_REALTIME, &(inode->i_mtime)) != 0) {
@@ -782,7 +790,7 @@ static int vsfs_read(const char *path, char *buf, size_t size, off_t offset,
 	if ((vsfs_blk_t) offset > inode->i_size){
 		return 0; 
 	}
-	else if (offset + size > inode->i_size || (offset + size) / VSFS_BLOCK_SIZE > inode->i_blocks){
+	else if (offset + size > inode->i_size){
 		size = inode->i_size - offset;
 	}
 	if (size == 0){
@@ -879,7 +887,9 @@ static int vsfs_write(const char *path, const char *buf, size_t size,
 	if (offset + size > (VSFS_NUM_DIRECT + VSFS_BLOCK_SIZE / sizeof(vsfs_blk_t)) * VSFS_BLOCK_SIZE){
 		return -EFBIG;
 	}
-	if ((vsfs_blk_t) (offset + size) > inode->i_size){
+	vsfs_blk_t old_size = inode->i_size;
+	vsfs_blk_t old_blocks = inode->i_blocks;
+	if ((vsfs_blk_t) (offset + size) >= inode->i_size || (offset + size) / VSFS_BLOCK_SIZE >= inode->i_blocks){
 		vsfs_truncate(path, offset + size); 
 	}
 	if (size == 0){
@@ -889,13 +899,6 @@ static int vsfs_write(const char *path, const char *buf, size_t size,
 	vsfs_blk_t end = (offset + size) / VSFS_BLOCK_SIZE;
 	vsfs_blk_t start_offset = offset % VSFS_BLOCK_SIZE;
 	vsfs_blk_t end_offset = (offset + size) % VSFS_BLOCK_SIZE;
-	if (start >= VSFS_NUM_DIRECT){
-		assert(inode->i_indirect != 0);
-		vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
-		for (vsfs_blk_t i = start; i <= end; i++){
-			assert(indirect_block[i - VSFS_NUM_DIRECT] != 0);
-		}
-	}
 	if (start < VSFS_NUM_DIRECT){
 		if (end < VSFS_NUM_DIRECT){
 			for (vsfs_blk_t i = start; i <= end; i++){
@@ -954,7 +957,36 @@ static int vsfs_write(const char *path, const char *buf, size_t size,
 			}
 		}
 	}
-
+	// if there is a hole
+	if (old_size < offset){
+		if (old_blocks <= VSFS_NUM_DIRECT){
+			memset(fs->image + inode->i_direct[old_blocks - 1] * VSFS_BLOCK_SIZE, 0, old_size % VSFS_BLOCK_SIZE);
+			// if (start < VSFS_NUM_DIRECT){
+			// 	for (vsfs_blk_t i = old_blocks; i < start; i++){
+			// 		memset(fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, 0, VSFS_BLOCK_SIZE);
+			// 	}
+			// 	memset(fs->image + inode->i_direct[start] * VSFS_BLOCK_SIZE, 0, start_offset);
+			// }
+			// else {
+			// 	// for (vsfs_blk_t i = old_blocks; i < VSFS_NUM_DIRECT; i++){
+			// 	// 	memset(fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, 0, VSFS_BLOCK_SIZE);
+			// 	// }
+			// 	// vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+			// 	// for (vsfs_blk_t i = VSFS_NUM_DIRECT; i < start; i++){
+			// 	// 	memset(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, VSFS_BLOCK_SIZE);
+			// 	// }
+			// 	memset(fs->image + indirect_block[start - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, start_offset);
+			// }
+		}
+		else {
+			vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+			// for (vsfs_blk_t i = old_blocks; i < start; i++){
+			// 	memset(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, VSFS_BLOCK_SIZE);
+			// }
+			memset(fs->image + indirect_block[old_blocks - 1 - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, old_size % VSFS_BLOCK_SIZE);
+			// memset(fs->image + indirect_block[start - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, start_offset);
+		}
+	}
 
 	return size;
 }

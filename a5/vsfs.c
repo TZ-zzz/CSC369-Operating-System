@@ -541,9 +541,53 @@ static int vsfs_unlink(const char *path)
 	fs_ctx *fs = get_fs();
 
 	//TODO: remove the file at given path
-	(void)path;
-	(void)fs;
-	return -ENOSYS;
+	vsfs_inode * inode = vsfs_get_inode(path);
+
+	// free all the blocks
+	for (vsfs_blk_t i = 0; i < inode->i_blocks; i++){
+		if (i < VSFS_NUM_DIRECT){
+			bitmap_free(fs->dbmap, fs->sb->num_blocks, inode->i_direct[i]);
+			fs->sb->free_blocks++;
+		}
+		else {
+			vsfs_blk_t * indirect = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+			bitmap_free(fs->dbmap, fs->sb->num_blocks, indirect[i - VSFS_NUM_DIRECT]);
+			fs->sb->free_blocks++;
+		}
+	}
+	if (inode->i_blocks > VSFS_NUM_DIRECT){
+		bitmap_free(fs->dbmap, fs->sb->num_blocks, inode->i_indirect);
+		fs->sb->free_blocks++;
+	}
+	inode -> i_blocks = 0;
+	inode -> i_size = 0;
+	inode -> i_nlink = 0;
+	inode ->i_indirect = 0;
+	for (int i = 0; i < VSFS_NUM_DIRECT; i++){
+		inode -> i_direct[i] = 0;
+	}
+	// free the inode
+	vsfs_ino_t ino;
+	path_lookup(path, &ino);
+	bitmap_free(fs->ibmap, fs->sb->num_inodes, ino);
+	fs->sb->free_inodes++;
+	vsfs_inode * root = &fs->itable[VSFS_ROOT_INO];
+	
+	// update root directory modify time
+	if (clock_gettime(CLOCK_REALTIME, &root->i_mtime) != 0){
+		perror("clock_gettime");
+	}
+	vsfs_dentry * dentry = (vsfs_dentry *) (fs->image + root->i_direct[0] * VSFS_BLOCK_SIZE);
+	for (vsfs_blk_t i = 0; i < VSFS_BLOCK_SIZE / sizeof(vsfs_dentry); i++){
+		if (dentry[i].ino == ino){
+			dentry[i].ino = VSFS_INO_MAX;
+			break;
+		}
+	}
+
+
+
+	return 0;
 }
 
 
@@ -566,15 +610,12 @@ static int vsfs_unlink(const char *path)
  */
 static int vsfs_utimens(const char *path, const struct timespec times[2])
 {
-	fs_ctx *fs = get_fs();
+	// fs_ctx *fs = get_fs();
 	vsfs_inode *ino = NULL;
 	
 	//TODO: update the modification timestamp (mtime) in the inode for given
 	// path with either the time passed as argument or the current time,
 	// according to the utimensat man page
-	(void)path;
-	(void)fs;
-	(void)ino;
 	
 	// 0. Check if there is actually anything to be done.
 	if (times[1].tv_nsec == UTIME_OMIT) {
@@ -583,23 +624,22 @@ static int vsfs_utimens(const char *path, const struct timespec times[2])
 	}
 
 	// 1. TODO: Find the inode for the final component in path
-
+	ino = vsfs_get_inode(path);
 	
 	// 2. Update the mtime for that inode.
 	//    This code is commented out to avoid failure until you have set
 	//    'ino' to point to the inode structure for the inode to update.
 	if (times[1].tv_nsec == UTIME_NOW) {
-		//if (clock_gettime(CLOCK_REALTIME, &(ino->i_mtime)) != 0) {
-			// clock_gettime should not fail, unless you give it a
-			// bad pointer to a timespec.
-		//	assert(false);
-		//}
+		if (clock_gettime(CLOCK_REALTIME, &(ino->i_mtime)) != 0) {
+		// 	clock_gettime should not fail, unless you give it a
+		// 	bad pointer to a timespec.
+			assert(false);
+		}
 	} else {
-		//ino->i_mtime = times[1];
+		ino->i_mtime = times[1];
 	}
 
-	//return 0;
-	return -ENOSYS;
+	return 0;
 }
 
 /**
@@ -961,6 +1001,8 @@ static int vsfs_write(const char *path, const char *buf, size_t size,
 	if (old_size < offset){
 		if (old_blocks <= VSFS_NUM_DIRECT){
 			memset(fs->image + inode->i_direct[old_blocks - 1] * VSFS_BLOCK_SIZE, 0, old_size % VSFS_BLOCK_SIZE);
+			// new allocated blocks are already zeroed in vsfs_truncate
+
 			// if (start < VSFS_NUM_DIRECT){
 			// 	for (vsfs_blk_t i = old_blocks; i < start; i++){
 			// 		memset(fs->image + inode->i_direct[i] * VSFS_BLOCK_SIZE, 0, VSFS_BLOCK_SIZE);
@@ -980,12 +1022,17 @@ static int vsfs_write(const char *path, const char *buf, size_t size,
 		}
 		else {
 			vsfs_blk_t * indirect_block = (vsfs_blk_t *) (fs->image + inode->i_indirect * VSFS_BLOCK_SIZE);
+			// new allocated blocks are already zeroed in vsfs_truncate
+
 			// for (vsfs_blk_t i = old_blocks; i < start; i++){
 			// 	memset(fs->image + indirect_block[i - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, VSFS_BLOCK_SIZE);
 			// }
 			memset(fs->image + indirect_block[old_blocks - 1 - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, old_size % VSFS_BLOCK_SIZE);
 			// memset(fs->image + indirect_block[start - VSFS_NUM_DIRECT] * VSFS_BLOCK_SIZE, 0, start_offset);
 		}
+	}
+	if (clock_gettime(CLOCK_REALTIME, &inode->i_mtime) != 0){
+		perror("clock_gettime");
 	}
 
 	return size;
